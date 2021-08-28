@@ -21,82 +21,80 @@ require('pg').types.setTypeParser(TIMESTAMPTZ_OID, date => moment(date).tz(proce
  * @type {Object}
  */
 const createTableInstructions = {
-    hearings() {
-        return knex.schema.hasTable('hearings')
+    defendants() {
+        return knex.schema.hasTable('defendants')
         .then((exists) => {
             if (!exists) {
-                return knex.schema.createTable('hearings', (table) => {
-                    table.string('defendant', 100);
-                    table.timestamp('date');
+                return knex.schema.createTable('defendants', (table) => {
+                    table.uuid("id")
+                      .primary()
+                      .defaultTo(knex.raw('uuid_generate_v4()'));
+                    table.string('first_name', 100);
+                    table.string('middle_name', 100);
+                    table.string('last_name', 100);
+                    table.string('suffix', 100);
+                    table.date('birth_date')
+                })
+            }
+        })
+    },
+    cases() {
+        return knex.schema.hasTable('cases')
+        .then((exists) => {
+            if (!exists) {
+                return knex.schema.createTable('cases', (table) => {
+                    table.uuid("id")
+                        .primary()
+                        .defaultTo(knex.raw('uuid_generate_v4()'));
+                    table.string('case_number', 100).notNullable();
+                    table.timestamp('court_date');
+                    table.enu('court_type', ['district', 'superior'])
+                    table.enu('session_type', ['AM', 'PM'])
                     table.string('room', 100);
-                    table.string('case_id', 100);
-                    table.string('type', 100);
-                    table.primary(['case_id', 'date']);
-                    table.index('case_id');
+                    // Each Case should be associated with a single defendant
+                    table.uuid('defendant_id').notNullable()
+                    table.foreign('defendant_id')
+                    .references('id').inTable('defendants').onDelete('CASCADE')
                 })
             }
         })
     },
-    requests() {
-        return knex.schema.hasTable('requests')
-        .then((exists) => {
-            if (!exists) {
-                return knex.schema.createTable('requests', (table) => {
-                    table.timestamps(true, true);
-                    table.string('case_id', 100);
-                    table.string('phone', 100);
-                    table.boolean('known_case').defaultTo(false);
-                    table.boolean('active').defaultTo(true);
-                    table.primary(['case_id', 'phone']);
-                });
-            }
-        })
+    subscribers() {
+      return knex.schema.hasTable('subscribers')
+      .then((exists) => {
+          if (!exists) {
+              return knex.schema.createTable('subscribers', (table) => {
+                  table.uuid("id")
+                      .primary()
+                      .defaultTo(knex.raw('uuid_generate_v4()'));
+                  table.string("phone_number", 10).notNullable()
+                  table.date("next_notification_date")
+                  // No two subscribers can have the same phone_number
+                  table.unique('phone_number')
+              })
+          }
+      })
     },
-    notifications() {
-        return knex.schema.hasTable('notifications')
-        .then((exists) => {
-            if (!exists) {
-                return knex.schema.createTable('notifications', (table) => {
-                    table.timestamp('created_at').defaultTo(knex.fn.now());
-                    table.string('case_id');
-                    table.string('phone');
-                    table.timestamp('event_date');
-                    table.enu('type', ['reminder', 'matched', 'expired']);
-                    table.string('error');
-                    table.foreign(['case_id', 'phone']).onDelete('CASCADE').references(['case_id', 'phone' ]).inTable('requests')
-                })
-            }
-        })
-    },
-    log_runners() {
-        return knex.schema.hasTable('log_runners')
-        .then((exists) => {
-            if (!exists) {
-                return knex.schema.createTable('log_runners', function (table) {
-                    table.increments()
-                    table.enu('runner', ['send_reminder', 'send_expired', 'send_matched','load'])
-                    table.integer('count')
-                    table.integer('error_count')
-                    table.timestamp('date').defaultTo(knex.fn.now())
-                })
-            }
-        })
-    },
-    log_hits() {
-        return knex.schema.hasTable('log_hits')
-        .then((exists) => {
-            if (!exists) {
-                return knex.schema.createTable('log_hits', function (table) {
-                    table.timestamp('time').defaultTo(knex.fn.now()),
-                    table.string('path'),
-                    table.string('method'),
-                    table.string('status_code'),
-                    table.string('phone'),
-                    table.string('body'),
-                    table.string('action')
-                })
-            }
-        })
+    subscriptions() {
+      return knex.schema.hasTable('subscriptions')
+      .then((exists) => {
+          if (!exists) {
+              return knex.schema.createTable('subscriptions', (table) => {
+                  table.uuid("id")
+                      .primary()
+                      .defaultTo(knex.raw('uuid_generate_v4()'));
+                  // Each Subscription should be associated with a single Defendant
+                  // and a single Subscriber
+                  table.uuid('defendant_id').notNullable()
+                  table.foreign('defendant_id')
+                    .references('id').inTable('defendants').onDelete('CASCADE')
+                  table.uuid('subscriber_id').notNullable()
+                  table.foreign('subscriber_id')
+                    .references('id').inTable('subscribers').onDelete('CASCADE')
+                  table.timestamp('subscription_date').defaultTo(knex.fn.now());  
+              })
+          }
+      })
     }
 };
 
@@ -175,13 +173,12 @@ function dropTable(table) {
  * Ensure all necessary tables exist.
  *
  * Note:  create logic only creates if a table does not exists, so it is enough to just
- *   call createTable() for each table. Becuase of foreign key constraint, requests table must
- *   exist before creating notifications table. The order is important because of constraints.
+ *   call createTable() for each table. The order is important because of constraints.
  *
  * @return {Promise} Promise to ensure all courtbot tables exist.
  */
 function ensureTablesExist() {
-  const tables = ['requests', 'hearings', 'notifications', 'log_runners', 'log_hits']
+  const tables = ['defendants', 'cases', 'subscribers', 'subscriptions']
   return tables.reduce((p, v) => p.then(() => {
       return createTable(v)
       .catch(err => logger.error(err))
