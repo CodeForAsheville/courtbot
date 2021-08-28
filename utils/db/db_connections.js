@@ -16,7 +16,7 @@ module.exports = {
         },
         pool: {
             afterCreate: function(connection, callback) {
-                connection.query(`SET TIME ZONE '${process.env.TZ}';`, function(err) {
+                connection.query(`SET TIME ZONE UTC;`, function(err) {
                     callback(err, connection);
                 });
             }
